@@ -244,7 +244,8 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=u
 const SAFE_NAMES = new Set(['index.html', 'admin.html', 'style.css', 'app.js', 'admin.js', 'favicon.svg']);
 
 function serveStatic(res, pathname) {
-  const name = pathname === '/' ? 'index.html' : path.basename(pathname);
+  let name = pathname === '/' ? 'index.html' : path.basename(pathname);
+  if (pathname === '/admin') name = 'admin.html';
   if (!SAFE_NAMES.has(name)) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end('404 Not Found');

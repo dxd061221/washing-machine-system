@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>宿舍洗衣机 · 管理端</title>
+<style>
+  :root{ --ink:#1f2328; --sub:#59636e; --line:#d1d9e0; --bg:#f6f8fa; --accent:#0969da; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);padding:16px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--sub);font-size:13px;margin-bottom:16px}
+  section{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  h2{font-size:15px;margin-bottom:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  input{flex:1;min-width:140px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  button{padding:9px 14px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:14px;font-weight:600;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{color:#cf222e;border-color:#cf222e;background:#fff}
+  button:active{filter:brightness(.92)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #eee;vertical-align:middle}
+  th{color:var(--sub);font-weight:600}
+  .badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}
+  .b-空闲{color:#1a7f37;background:#dafbe1}
+  .b-使用中{color:#0969da;background:#e7f3ff}
+  .b-待取衣{color:#bf6b00;background:#fff1e5}
+  .b-故障{color:#cf222e;background:#ffebe9}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(31,35,40,.92);color:#fff;font-size:14px;padding:10px 18px;border-radius:12px;z-index:99;opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .back{display:inline-block;margin-bottom:12px;color:var(--accent);text-decoration:none;font-size:14px}
+  @media (max-width:640px){ table{font-size:12px} th,td{padding:6px 4px} }
+</style>
+</head>
+<body>
+<a class="back" href="/">← 返回学生端</a>
+<h1>🛠 洗衣机管理端</h1>
+<div class="sub">机器维护 · 状态日志 · 报修处理</div>
+
+<section>
+  <h2>新增洗衣机</h2>
+  <div class="row">
+    <input id="newName" placeholder="名称，如：7号洗衣机">
+    <input id="newLoc" placeholder="位置，如：12号宿舍楼 洗衣房">
+    <button class="primary" onclick="addMachine()">＋ 添加</button>
+  </div>
+</section>
+
+<section>
+  <h2>洗衣机列表</h2>
+  <table id="machinesTable"><thead><tr><th>名称</th><th>位置</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section>
+  <h2>状态日志（最近 100 条）</h2>
+  <table><thead><tr><th>时间</th><th>机器</th><th>迁移</th><th>操作人</th></tr></thead><tbody id="logsBody"></tbody></table>
+</section>
+
+<section>
+  <h2>报修记录</h2>
+  <table><thead><tr><th>机器</th><th>描述</th><th>上报人</th><th>状态</th><th>操作</th></tr></thead><tbody id="faultsBody"></tbody></table>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtTs(ts){ return new Date(ts).toLocaleString('zh-CN',{hour12:false}); }
+
+async function loadAll(){
+  const [m, l, f] = await Promise.all([
+    fetch('/api/machines').then(r=>r.json()),
+    fetch('/api/logs').then(r=>r.json()),
+    fetch('/api/faults').then(r=>r.json()),
+  ]);
+  renderMachines(m.machines);
+  renderLogs(l.logs);
+  renderFaults(f.faults);
+}
+
+function renderMachines(list){
+  document.querySelector('#machinesTable tbody').innerHTML = list.map(m=>`<tr>
+    <td><input value="${esc(m.name)}" data-id="${m.id}" data-field="name" class="editable" style="min-width:110px"></td>
+    <td><input value="${esc(m.location)}" data-id="${m.id}" data-field="location" class="editable" style="min-width:150px"></td>
+    <td><span class="badge b-${esc(m.status)}">${esc(m.status)}</span></td>
+    <td>${fmtTs(m.updated_at)}</td>
+    <td><button class="danger" onclick="delMachine(${m.id})">删除</button></td>
+  </tr>`).join('');
+  document.querySelectorAll('.editable').forEach(el=>{
+    el.addEventListener('change', ()=>updateMachine(Number(el.dataset.id), el.dataset.field, el.value));
+  });
+}
+
+function renderLogs(logs){
+  document.querySelector('#logsBody').innerHTML = logs.length
+    ? logs.map(l=>`<tr><td>${fmtTs(l.created_at)}</td><td>${esc(l.machine_name)}</td><td>${esc(l.from)} → ${esc(l.to)}</td><td>${esc(l.by)}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="color:#59636e">暂无记录</td></tr>';
+}
+
+function renderFaults(faults){
+  document.querySelector('#faultsBody').innerHTML = faults.length
+    ? faults.map(f=>`<tr><td>${esc(f.machine_name)}</td><td>${esc(f.desc)}</td><td>${esc(f.reporter)}</td><td><span class="badge ${f.status==='已处理'?'b-空闲':'b-故障'}">${esc(f.status)}</span></td>
+      <td>${f.status==='待处理'?`<button class="primary" onclick="closeFault(${f.id})">✓ 处理完成</button>`:''}</td></tr>`).join('')
+    : '<tr><td colspan="5" style="color:#59636e">暂无报修</td></tr>';
+}
+
+async function addMachine(){
+  const name = document.getElementById('newName').value.trim();
+  const location = document.getElementById('newLoc').value.trim();
+  if(!name) return showToast('请输入机器名称');
+  const res = await fetch('/api/admin/machines',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,location})});
+  const d = await res.json();
+  if(res.ok){ showToast('✅ 已添加'); document.getElementById('newName').value=''; document.getElementById('newLoc').value=''; loadAll(); }
+  else showToast(d.error);
+}
+
+async function updateMachine(id, field, value){
+  const res = await fetch(`/api/admin/machines/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({[field]:value})});
+  if(res.ok) showToast('✅ 已保存'); else showToast('保存失败');
+}
+
+async function delMachine(id){
+  if(!confirm('确定删除这台洗衣机？')) return;
+  const res = await fetch(`/api/admin/machines/${id}`,{method:'DELETE'});
+  if(res.ok){ showToast('✅ 已删除'); loadAll(); } else showToast('删除失败');
+}
+
+async function closeFault(id){
+  const res = await fetch(`/api/admin/faults/${id}/close`,{method:'POST'});
+  if(res.ok){ showToast('✅ 已处理，机器恢复为空闲'); loadAll(); } else showToast('操作失败');
+}
+
+let toastTimer;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+loadAll();
+setInterval(loadAll, 15000);
+</script>
+</body>
+</html>
